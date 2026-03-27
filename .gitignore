@@ -1,10 +1,9 @@
-#
-# Typical ignore rules for this Mission 11 (ASP.NET Core + React) scaffold.
-# Prevent build artifacts and editor settings from being committed.
-#
+
 bin/
 obj/
 node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
 .DS_Store
 .vscode/
 .idea/

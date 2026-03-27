@@ -26,7 +26,12 @@ public sealed class SqliteBookRepository : IBookRepository
         _schemaMapper = schemaMapper;
     }
 
-    public async Task<PagedResult<BookDto>> GetBooksAsync(int page, int pageSize, bool sortByTitleDescending, CancellationToken cancellationToken)
+    public async Task<PagedResult<BookDto>> GetBooksAsync(
+        int page,
+        int pageSize,
+        bool sortByTitleDescending,
+        string? category,
+        CancellationToken cancellationToken)
     {
         // Basic bounds checks to keep pagination predictable.
         if (page < 1)
@@ -62,12 +67,19 @@ public sealed class SqliteBookRepository : IBookRepository
         await using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        var totalCount = await GetTotalCountAsync(connection, mapping, cancellationToken);
+        var effectiveCategory = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
+
+        var totalCount = await GetTotalCountAsync(connection, mapping, effectiveCategory, cancellationToken);
 
         var offset = (page - 1) * pageSize;
 
         // Sorting is required by the assignment: by book title.
         var order = sortByTitleDescending ? "DESC" : "ASC";
+
+        var whereClause =
+            effectiveCategory is null
+                ? string.Empty
+                : $@"WHERE ""{mapping.CategoryColumn}"" = @category";
 
         var sql =
             $@"SELECT
@@ -79,6 +91,7 @@ public sealed class SqliteBookRepository : IBookRepository
                     ""{mapping.NumberOfPagesColumn}"" AS NumberOfPages,
                     ""{mapping.PriceColumn}"" AS Price
                 FROM ""{mapping.TableName}""
+                {whereClause}
                 ORDER BY ""{mapping.TitleColumn}"" {order}
                 LIMIT @pageSize OFFSET @offset;";
 
@@ -86,6 +99,8 @@ public sealed class SqliteBookRepository : IBookRepository
         cmd.CommandText = sql;
         cmd.Parameters.AddWithValue("@pageSize", pageSize);
         cmd.Parameters.AddWithValue("@offset", offset);
+        if (effectiveCategory is not null)
+            cmd.Parameters.AddWithValue("@category", effectiveCategory);
 
         var items = new List<BookDto>(pageSize);
 
@@ -114,11 +129,22 @@ public sealed class SqliteBookRepository : IBookRepository
         };
     }
 
-    private static async Task<int> GetTotalCountAsync(SqliteConnection connection, BookSchemaMapping mapping, CancellationToken cancellationToken)
+    private static async Task<int> GetTotalCountAsync(
+        SqliteConnection connection,
+        BookSchemaMapping mapping,
+        string? category,
+        CancellationToken cancellationToken)
     {
-        var sql = $@"SELECT COUNT(1) FROM ""{mapping.TableName}"";";
+        var whereClause =
+            category is null
+                ? string.Empty
+                : $@"WHERE ""{mapping.CategoryColumn}"" = @category";
+
+        var sql = $@"SELECT COUNT(1) FROM ""{mapping.TableName}"" {whereClause};";
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = sql;
+        if (category is not null)
+            cmd.Parameters.AddWithValue("@category", category);
         var result = await cmd.ExecuteScalarAsync(cancellationToken);
         return Convert.ToInt32(result, CultureInfo.InvariantCulture);
     }
@@ -152,6 +178,55 @@ public sealed class SqliteBookRepository : IBookRepository
 
         var raw = reader.GetValue(ordinal).ToString() ?? throw new InvalidOperationException($"Database column '{columnAlias}' is empty.");
         return decimal.Parse(raw, NumberStyles.Number, CultureInfo.InvariantCulture);
+    }
+
+    public async Task<List<string>> GetCategoriesAsync(CancellationToken cancellationToken)
+    {
+        var sqlitePath = _configuration["Sqlite:Path"] ?? "Bookstore.sqlite";
+
+        // The scaffold copies Bookstore.sqlite into the build output folder, so we try both:
+        // 1) content root (project folder)
+        // 2) base directory (bin/... where the file gets copied)
+        string fullPath;
+        if (Path.IsPathRooted(sqlitePath))
+        {
+            fullPath = sqlitePath;
+        }
+        else
+        {
+            var contentRootCandidate = Path.Combine(_env.ContentRootPath, sqlitePath);
+            var baseDirCandidate = Path.Combine(AppContext.BaseDirectory, sqlitePath);
+
+            fullPath = File.Exists(contentRootCandidate) ? contentRootCandidate : baseDirCandidate;
+        }
+
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException($"Bookstore database not found. Looked for '{sqlitePath}' relative to the project and build output.", fullPath);
+
+        var connectionString = $"Data Source={fullPath}";
+        var mapping = await _schemaMapper.GetMappingAsync(connectionString, cancellationToken);
+
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var sql =
+            $@"SELECT DISTINCT
+                    ""{mapping.CategoryColumn}"" AS Category
+               FROM ""{mapping.TableName}""
+               ORDER BY ""{mapping.CategoryColumn}"" ASC;";
+
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+
+        var categories = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!reader.IsDBNull(0))
+                categories.Add(reader.GetString(0));
+        }
+
+        return categories;
     }
 }
 

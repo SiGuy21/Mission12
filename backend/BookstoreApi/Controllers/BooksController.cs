@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BookstoreApi.Data;
 using BookstoreApi.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -17,6 +18,7 @@ public sealed class BooksController : ControllerBase
     }
 
     // GET /api/books?page=1&pageSize=5&sort=title&sortDir=asc|desc
+    // Optional: category=Biography|Self-Help|...
     // Assignment requirement: only support sorting by title.
     [HttpGet]
     public async Task<ActionResult<PagedResult<BookDto>>> GetBooks(
@@ -24,6 +26,7 @@ public sealed class BooksController : ControllerBase
         [FromQuery] int pageSize = 5,
         [FromQuery] string sort = "title",
         [FromQuery] string sortDir = "asc",
+        [FromQuery] string? category = null,
         CancellationToken cancellationToken = default)
     {
         // Defensive validation so React can't request unsupported sorts.
@@ -41,13 +44,21 @@ public sealed class BooksController : ControllerBase
                 return BadRequest("sortDir must be either 'asc' or 'desc'.");
 
             // Repository does the actual SQL + pagination against Bookstore.sqlite.
-            var result = await _repository.GetBooksAsync(page, pageSize, desc, cancellationToken);
+            var result = await _repository.GetBooksAsync(page, pageSize, desc, category, cancellationToken);
             return Ok(result);
         }
         catch (ArgumentOutOfRangeException ex)
         {
             return BadRequest(ex.Message);
         }
+    }
+
+    // GET /api/books/categories
+    [HttpGet("categories")]
+    public async Task<ActionResult<List<string>>> GetCategories(CancellationToken cancellationToken = default)
+    {
+        var categories = await _repository.GetCategoriesAsync(cancellationToken);
+        return Ok(categories);
     }
 }
 

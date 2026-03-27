@@ -11,6 +11,7 @@ export async function fetchBooks(params: {
   pageSize: number;
   sort: 'title';
   sortDir: 'asc' | 'desc';
+  category?: string;
   signal?: AbortSignal;
 }): Promise<PagedResult<BookDto>> {
   const baseUrl = getApiBaseUrl();
@@ -23,6 +24,9 @@ export async function fetchBooks(params: {
   url.searchParams.set('pageSize', String(params.pageSize));
   url.searchParams.set('sort', params.sort);
   url.searchParams.set('sortDir', params.sortDir);
+  if (params.category && params.category.trim().length > 0) {
+    url.searchParams.set('category', params.category.trim());
+  }
 
   const res = await fetch(url.toString(), { method: 'GET', signal: params.signal });
   if (!res.ok) {
@@ -31,5 +35,18 @@ export async function fetchBooks(params: {
   }
 
   return (await res.json()) as PagedResult<BookDto>;
+}
+
+export async function fetchBookCategories(params?: { signal?: AbortSignal }): Promise<string[]> {
+  const baseUrl = getApiBaseUrl();
+  const url = new URL('/api/books/categories', baseUrl);
+
+  const res = await fetch(url.toString(), { method: 'GET', signal: params?.signal });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+
+  return (await res.json()) as string[];
 }
 
