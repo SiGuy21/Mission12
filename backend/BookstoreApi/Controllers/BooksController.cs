@@ -60,5 +60,86 @@ public sealed class BooksController : ControllerBase
         var categories = await _repository.GetCategoriesAsync(cancellationToken);
         return Ok(categories);
     }
+
+    // POST /api/books
+    [HttpPost]
+    public async Task<ActionResult<BookDto>> CreateBook([FromBody] BookDto? book, CancellationToken cancellationToken = default)
+    {
+        if (book is null)
+            return BadRequest("Request body is required.");
+
+        var validationError = ValidateBook(book);
+        if (validationError is not null)
+            return BadRequest(validationError);
+
+        try
+        {
+            await _repository.CreateBookAsync(book, cancellationToken);
+            return StatusCode(StatusCodes.Status201Created, book);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
+
+    // PUT /api/books/{isbn}
+    [HttpPut("{isbn}")]
+    public async Task<ActionResult<BookDto>> UpdateBook(
+        string isbn,
+        [FromBody] BookDto? book,
+        CancellationToken cancellationToken = default)
+    {
+        if (book is null)
+            return BadRequest("Request body is required.");
+
+        var validationError = ValidateBook(book);
+        if (validationError is not null)
+            return BadRequest(validationError);
+
+        try
+        {
+            var updated = await _repository.UpdateBookAsync(isbn, book, cancellationToken);
+            if (!updated)
+                return NotFound($"No book found with ISBN '{isbn}'.");
+
+            return Ok(book);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
+
+    // DELETE /api/books/{isbn}
+    [HttpDelete("{isbn}")]
+    public async Task<IActionResult> DeleteBook(string isbn, CancellationToken cancellationToken = default)
+    {
+        var deleted = await _repository.DeleteBookAsync(isbn, cancellationToken);
+        if (!deleted)
+            return NotFound($"No book found with ISBN '{isbn}'.");
+
+        return NoContent();
+    }
+
+    private static string? ValidateBook(BookDto book)
+    {
+        if (string.IsNullOrWhiteSpace(book.Title))
+            return "Title is required.";
+        if (string.IsNullOrWhiteSpace(book.Author))
+            return "Author is required.";
+        if (string.IsNullOrWhiteSpace(book.Publisher))
+            return "Publisher is required.";
+        if (string.IsNullOrWhiteSpace(book.Isbn))
+            return "ISBN is required.";
+        if (string.IsNullOrWhiteSpace(book.Category))
+            return "Category is required.";
+        if (book.NumberOfPages < 1)
+            return "NumberOfPages must be at least 1.";
+        if (book.Price < 0)
+            return "Price cannot be negative.";
+
+        return null;
+    }
 }
 

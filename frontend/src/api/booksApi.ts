@@ -1,10 +1,15 @@
 import type { BookDto, PagedResult } from '../types';
 
-// Small API client for the bookstore backend.
-const getApiBaseUrl = (): string => {
-  // If you use Vite proxy, you can just call relative /api/... and omit this.
-  return import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000';
-};
+// Base URL for the API. Empty uses same origin (Vite dev proxy or SWA + configured backend).
+function apiUrl(pathAndQuery: string): string {
+  const env = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (env) {
+    const base = env.replace(/\/$/, '');
+    const p = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
+    return `${base}${p}`;
+  }
+  return pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
+}
 
 export async function fetchBooks(params: {
   page: number;
@@ -14,12 +19,7 @@ export async function fetchBooks(params: {
   category?: string;
   signal?: AbortSignal;
 }): Promise<PagedResult<BookDto>> {
-  const baseUrl = getApiBaseUrl();
-
-  // Backend query params:
-  // - page/pageSize control pagination
-  // - sort + sortDir control ordering by title
-  const url = new URL('/api/books', baseUrl);
+  const url = new URL('/api/books', 'http://placeholder');
   url.searchParams.set('page', String(params.page));
   url.searchParams.set('pageSize', String(params.pageSize));
   url.searchParams.set('sort', params.sort);
@@ -28,7 +28,7 @@ export async function fetchBooks(params: {
     url.searchParams.set('category', params.category.trim());
   }
 
-  const res = await fetch(url.toString(), { method: 'GET', signal: params.signal });
+  const res = await fetch(apiUrl(`${url.pathname}${url.search}`), { method: 'GET', signal: params.signal });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Request failed (${res.status})`);
@@ -38,10 +38,7 @@ export async function fetchBooks(params: {
 }
 
 export async function fetchBookCategories(params?: { signal?: AbortSignal }): Promise<string[]> {
-  const baseUrl = getApiBaseUrl();
-  const url = new URL('/api/books/categories', baseUrl);
-
-  const res = await fetch(url.toString(), { method: 'GET', signal: params?.signal });
+  const res = await fetch(apiUrl('/api/books/categories'), { method: 'GET', signal: params?.signal });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Request failed (${res.status})`);
@@ -50,3 +47,63 @@ export async function fetchBookCategories(params?: { signal?: AbortSignal }): Pr
   return (await res.json()) as string[];
 }
 
+export async function fetchAllBooks(params?: { signal?: AbortSignal }): Promise<BookDto[]> {
+  const all: BookDto[] = [];
+  let page = 1;
+  const pageSize = 100;
+
+  while (true) {
+    const batch = await fetchBooks({
+      page,
+      pageSize,
+      sort: 'title',
+      sortDir: 'asc',
+      signal: params?.signal,
+    });
+    all.push(...batch.items);
+    if (all.length >= batch.totalCount || batch.items.length === 0) break;
+    page += 1;
+  }
+
+  return all;
+}
+
+export async function createBook(book: BookDto, params?: { signal?: AbortSignal }): Promise<void> {
+  const res = await fetch(apiUrl('/api/books'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(book),
+    signal: params?.signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+}
+
+export async function updateBook(
+  originalIsbn: string,
+  book: BookDto,
+  params?: { signal?: AbortSignal }
+): Promise<void> {
+  const path = `/api/books/${encodeURIComponent(originalIsbn)}`;
+  const res = await fetch(apiUrl(path), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(book),
+    signal: params?.signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+}
+
+export async function deleteBook(isbn: string, params?: { signal?: AbortSignal }): Promise<void> {
+  const path = `/api/books/${encodeURIComponent(isbn)}`;
+  const res = await fetch(apiUrl(path), { method: 'DELETE', signal: params?.signal });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+}

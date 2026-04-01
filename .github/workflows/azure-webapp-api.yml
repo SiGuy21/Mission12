@@ -1,0 +1,34 @@
+# Publishes BookstoreApi and deploys to an Azure App Service (Windows or Linux).
+# Prerequisites: create a Web App targeting .NET, download its Publish Profile.
+# Repository secrets:
+#   AZURE_WEBAPP_PUBLISH_PROFILE — contents of the downloaded *.PublishSettings file.
+#   AZURE_WEBAPP_NAME — app name only (e.g. my-bookstore-api).
+
+name: Azure Web App — Bookstore API
+
+on:
+  push:
+    branches:
+      - phase-6
+      - main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish
+        run: dotnet publish backend/BookstoreApi/BookstoreApi.csproj -c Release -o "${{ github.workspace }}/publish"
+
+      - name: Deploy
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ github.workspace }}/publish

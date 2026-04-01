@@ -26,6 +26,24 @@ public sealed class SqliteBookRepository : IBookRepository
         _schemaMapper = schemaMapper;
     }
 
+    private string ResolveSqliteFullPath()
+    {
+        var sqlitePath = _configuration["Sqlite:Path"] ?? "Bookstore.sqlite";
+
+        if (Path.IsPathRooted(sqlitePath))
+            return sqlitePath;
+
+        var contentRootCandidate = Path.Combine(_env.ContentRootPath, sqlitePath);
+        var baseDirCandidate = Path.Combine(AppContext.BaseDirectory, sqlitePath);
+
+        var fullPath = File.Exists(contentRootCandidate) ? contentRootCandidate : baseDirCandidate;
+
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException($"Bookstore database not found. Looked for '{sqlitePath}' relative to the project and build output.", fullPath);
+
+        return fullPath;
+    }
+
     public async Task<PagedResult<BookDto>> GetBooksAsync(
         int page,
         int pageSize,
@@ -40,27 +58,7 @@ public sealed class SqliteBookRepository : IBookRepository
         if (pageSize < 1 || pageSize > 100)
             throw new ArgumentOutOfRangeException(nameof(pageSize), "pageSize must be between 1 and 100");
 
-        var sqlitePath = _configuration["Sqlite:Path"] ?? "Bookstore.sqlite";
-
-        // The scaffold copies Bookstore.sqlite into the build output folder, so we try both:
-        // 1) content root (project folder)
-        // 2) base directory (bin/... where the file gets copied)
-        string fullPath;
-        if (Path.IsPathRooted(sqlitePath))
-        {
-            fullPath = sqlitePath;
-        }
-        else
-        {
-            var contentRootCandidate = Path.Combine(_env.ContentRootPath, sqlitePath);
-            var baseDirCandidate = Path.Combine(AppContext.BaseDirectory, sqlitePath);
-
-            fullPath = File.Exists(contentRootCandidate) ? contentRootCandidate : baseDirCandidate;
-        }
-
-        if (!File.Exists(fullPath))
-            throw new FileNotFoundException($"Bookstore database not found. Looked for '{sqlitePath}' relative to the project and build output.", fullPath);
-
+        var fullPath = ResolveSqliteFullPath();
         var connectionString = $"Data Source={fullPath}";
         var mapping = await _schemaMapper.GetMappingAsync(connectionString, cancellationToken);
 
@@ -182,27 +180,7 @@ public sealed class SqliteBookRepository : IBookRepository
 
     public async Task<List<string>> GetCategoriesAsync(CancellationToken cancellationToken)
     {
-        var sqlitePath = _configuration["Sqlite:Path"] ?? "Bookstore.sqlite";
-
-        // The scaffold copies Bookstore.sqlite into the build output folder, so we try both:
-        // 1) content root (project folder)
-        // 2) base directory (bin/... where the file gets copied)
-        string fullPath;
-        if (Path.IsPathRooted(sqlitePath))
-        {
-            fullPath = sqlitePath;
-        }
-        else
-        {
-            var contentRootCandidate = Path.Combine(_env.ContentRootPath, sqlitePath);
-            var baseDirCandidate = Path.Combine(AppContext.BaseDirectory, sqlitePath);
-
-            fullPath = File.Exists(contentRootCandidate) ? contentRootCandidate : baseDirCandidate;
-        }
-
-        if (!File.Exists(fullPath))
-            throw new FileNotFoundException($"Bookstore database not found. Looked for '{sqlitePath}' relative to the project and build output.", fullPath);
-
+        var fullPath = ResolveSqliteFullPath();
         var connectionString = $"Data Source={fullPath}";
         var mapping = await _schemaMapper.GetMappingAsync(connectionString, cancellationToken);
 
@@ -227,6 +205,124 @@ public sealed class SqliteBookRepository : IBookRepository
         }
 
         return categories;
+    }
+
+    public async Task CreateBookAsync(BookDto book, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(book);
+
+        var fullPath = ResolveSqliteFullPath();
+        var connectionString = $"Data Source={fullPath}";
+        var mapping = await _schemaMapper.GetMappingAsync(connectionString, cancellationToken);
+
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var existsCmd = connection.CreateCommand();
+        existsCmd.CommandText =
+            $@"SELECT COUNT(1) FROM ""{mapping.TableName}"" WHERE ""{mapping.IsbnColumn}"" = @isbn;";
+        existsCmd.Parameters.AddWithValue("@isbn", book.Isbn);
+
+        var exists = Convert.ToInt32(await existsCmd.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+        if (exists > 0)
+            throw new InvalidOperationException($"A book with ISBN '{book.Isbn}' already exists.");
+
+        await using var insertCmd = connection.CreateCommand();
+        insertCmd.CommandText =
+            $@"INSERT INTO ""{mapping.TableName}"" (
+                    ""{mapping.TitleColumn}"",
+                    ""{mapping.AuthorColumn}"",
+                    ""{mapping.PublisherColumn}"",
+                    ""{mapping.IsbnColumn}"",
+                    ""{mapping.CategoryColumn}"",
+                    ""{mapping.NumberOfPagesColumn}"",
+                    ""{mapping.PriceColumn}""
+                ) VALUES (
+                    @title, @author, @publisher, @isbn, @category, @pages, @price
+                );";
+
+        insertCmd.Parameters.AddWithValue("@title", book.Title);
+        insertCmd.Parameters.AddWithValue("@author", book.Author);
+        insertCmd.Parameters.AddWithValue("@publisher", book.Publisher);
+        insertCmd.Parameters.AddWithValue("@isbn", book.Isbn);
+        insertCmd.Parameters.AddWithValue("@category", book.Category);
+        insertCmd.Parameters.AddWithValue("@pages", book.NumberOfPages);
+        insertCmd.Parameters.AddWithValue("@price", book.Price);
+
+        await insertCmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<bool> UpdateBookAsync(string originalIsbn, BookDto book, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(book);
+        if (string.IsNullOrWhiteSpace(originalIsbn))
+            throw new ArgumentException("ISBN is required.", nameof(originalIsbn));
+
+        var trimmedOriginal = originalIsbn.Trim();
+
+        var fullPath = ResolveSqliteFullPath();
+        var connectionString = $"Data Source={fullPath}";
+        var mapping = await _schemaMapper.GetMappingAsync(connectionString, cancellationToken);
+
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        if (!string.Equals(trimmedOriginal, book.Isbn.Trim(), StringComparison.Ordinal))
+        {
+            await using var conflictCmd = connection.CreateCommand();
+            conflictCmd.CommandText =
+                $@"SELECT COUNT(1) FROM ""{mapping.TableName}"" WHERE ""{mapping.IsbnColumn}"" = @newIsbn;";
+            conflictCmd.Parameters.AddWithValue("@newIsbn", book.Isbn.Trim());
+            var otherCount = Convert.ToInt32(await conflictCmd.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+            if (otherCount > 0)
+                throw new InvalidOperationException($"A book with ISBN '{book.Isbn}' already exists.");
+        }
+
+        await using var updateCmd = connection.CreateCommand();
+        updateCmd.CommandText =
+            $@"UPDATE ""{mapping.TableName}"" SET
+                    ""{mapping.TitleColumn}"" = @title,
+                    ""{mapping.AuthorColumn}"" = @author,
+                    ""{mapping.PublisherColumn}"" = @publisher,
+                    ""{mapping.IsbnColumn}"" = @isbn,
+                    ""{mapping.CategoryColumn}"" = @category,
+                    ""{mapping.NumberOfPagesColumn}"" = @pages,
+                    ""{mapping.PriceColumn}"" = @price
+                WHERE ""{mapping.IsbnColumn}"" = @originalIsbn;";
+
+        updateCmd.Parameters.AddWithValue("@title", book.Title);
+        updateCmd.Parameters.AddWithValue("@author", book.Author);
+        updateCmd.Parameters.AddWithValue("@publisher", book.Publisher);
+        updateCmd.Parameters.AddWithValue("@isbn", book.Isbn);
+        updateCmd.Parameters.AddWithValue("@category", book.Category);
+        updateCmd.Parameters.AddWithValue("@pages", book.NumberOfPages);
+        updateCmd.Parameters.AddWithValue("@price", book.Price);
+        updateCmd.Parameters.AddWithValue("@originalIsbn", trimmedOriginal);
+
+        var rows = await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+        return rows > 0;
+    }
+
+    public async Task<bool> DeleteBookAsync(string isbn, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(isbn))
+            throw new ArgumentException("ISBN is required.", nameof(isbn));
+
+        var trimmed = isbn.Trim();
+
+        var fullPath = ResolveSqliteFullPath();
+        var connectionString = $"Data Source={fullPath}";
+        var mapping = await _schemaMapper.GetMappingAsync(connectionString, cancellationToken);
+
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var deleteCmd = connection.CreateCommand();
+        deleteCmd.CommandText = $@"DELETE FROM ""{mapping.TableName}"" WHERE ""{mapping.IsbnColumn}"" = @isbn;";
+        deleteCmd.Parameters.AddWithValue("@isbn", trimmed);
+
+        var rows = await deleteCmd.ExecuteNonQueryAsync(cancellationToken);
+        return rows > 0;
     }
 }
 

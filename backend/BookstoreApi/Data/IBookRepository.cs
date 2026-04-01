@@ -17,5 +17,15 @@ public interface IBookRepository
 
     // Returns distinct Category values for the catalog filter.
     Task<List<string>> GetCategoriesAsync(CancellationToken cancellationToken);
+
+    // Creates a new book row. Throws InvalidOperationException if the ISBN already exists.
+    Task CreateBookAsync(BookDto book, CancellationToken cancellationToken);
+
+    // Updates the book identified by `originalIsbn`. Returns false if no row matched.
+    // Throws InvalidOperationException if the new ISBN conflicts with a different row.
+    Task<bool> UpdateBookAsync(string originalIsbn, BookDto book, CancellationToken cancellationToken);
+
+    // Deletes the book with the given ISBN. Returns false if no row matched.
+    Task<bool> DeleteBookAsync(string isbn, CancellationToken cancellationToken);
 }
 
