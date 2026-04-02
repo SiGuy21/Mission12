@@ -2,7 +2,7 @@ import type { BookDto, PagedResult } from '../types';
 
 // Base URL for the API. Empty uses same origin (Vite dev proxy or SWA + configured backend).
 function apiUrl(pathAndQuery: string): string {
-  const env = import.meta.env.VITE_API_BASE_URL?.trim();
+  const env = import.meta.env.VITE_API_BASE_URL?.trim() || "https://bookstoreapp-silas-backend-cffkbxgubjgnb7gp.centralus-01.azurewebsites.net/";
   if (env) {
     const base = env.replace(/\/$/, '');
     const p = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
