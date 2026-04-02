@@ -1,6 +1,7 @@
 // Program entry point for the BookstoreApi ASP.NET Core app.
 // Wires up controllers, CORS for React dev, and dependency injection for the SQLite repository.
 using BookstoreApi.Data;
+using Microsoft.AspNetCore.Http;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,15 +14,32 @@ builder.Services.AddSession(options =>
     options.IdleTimeout = TimeSpan.FromMinutes(30);
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
+    // Cross-site SPA (Azure Static Web Apps → App Service API) needs SameSite=None + Secure.
+    // Local Vite dev: localhost ports are same-site; Lax works with credentials.
+    if (builder.Environment.IsDevelopment())
+    {
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+    }
+    else
+    {
+        options.Cookie.SameSite = SameSiteMode.None;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    }
 });
 
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        policy.WithOrigins(
+                "https://purple-river-04dd26810.1.azurestaticapps.net",
+                "http://localhost:5173",
+                "http://localhost:4173",
+                "http://127.0.0.1:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
