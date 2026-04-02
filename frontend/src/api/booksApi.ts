@@ -1,4 +1,5 @@
 import type { BookDto, PagedResult } from '../types';
+import type { Cart, CartItem } from '../types';
 
 // Base URL for the API. Empty uses same origin (Vite dev proxy or SWA + configured backend).
 function apiUrl(pathAndQuery: string): string {
@@ -106,4 +107,55 @@ export async function deleteBook(isbn: string, params?: { signal?: AbortSignal }
     const text = await res.text().catch(() => '');
     throw new Error(text || `Request failed (${res.status})`);
   }
+}
+
+export async function fetchCart(params?: { signal?: AbortSignal }): Promise<Cart> {
+  const res = await fetch(apiUrl('/api/books/cart'), { method: 'GET', signal: params?.signal });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+
+  return (await res.json()) as Cart;
+}
+
+export async function addToCart(isbn: string, params?: { signal?: AbortSignal }): Promise<Cart> {
+  const res = await fetch(apiUrl('/api/books/cart/add'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isbn }),
+    signal: params?.signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+
+  return (await res.json()) as Cart;
+}
+
+export async function updateCartItem(isbn: string, quantity: number, params?: { signal?: AbortSignal }): Promise<Cart> {
+  const res = await fetch(apiUrl('/api/books/cart/update'), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isbn, quantity }),
+    signal: params?.signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+
+  return (await res.json()) as Cart;
+}
+
+export async function removeFromCart(isbn: string, params?: { signal?: AbortSignal }): Promise<Cart> {
+  const path = `/api/books/cart/${encodeURIComponent(isbn)}`;
+  const res = await fetch(apiUrl(path), { method: 'DELETE', signal: params?.signal });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+
+  return (await res.json()) as Cart;
 }

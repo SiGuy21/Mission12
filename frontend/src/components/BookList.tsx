@@ -1,11 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { BookDto, PagedResult } from '../types';
-import { fetchBookCategories, fetchBooks } from '../api/booksApi';
+import type { BookDto, PagedResult, Cart, CartItem } from '../types';
+import { fetchBookCategories, fetchBooks, fetchCart, addToCart, updateCartItem, removeFromCart } from '../api/booksApi';
 
 type SortDir = 'asc' | 'desc';
-
-type CartItem = { book: BookDto; quantity: number };
-type CartState = { items: Record<string, CartItem> };
 
 type BrowseState = {
   page: number;
@@ -14,7 +11,6 @@ type BrowseState = {
   category: string; // '' means "All"
 };
 
-const CART_KEY = 'mission11_cart_v1';
 const RETURN_BROWSE_KEY = 'mission11_cart_return_browse_v1';
 const pageSizeOptions = [5, 10, 15, 20];
 
@@ -27,29 +23,7 @@ function safeJsonParse<T>(raw: string | null): T | null {
   }
 }
 
-function loadCart(): CartState {
-  if (typeof sessionStorage === 'undefined') return { items: {} };
-
-  const parsed = safeJsonParse<CartState>(sessionStorage.getItem(CART_KEY));
-  if (!parsed || typeof parsed !== 'object' || !parsed.items) return { items: {} };
-
-  const items: Record<string, CartItem> = {};
-  for (const [isbn, item] of Object.entries(parsed.items)) {
-    if (!item || typeof item !== 'object') continue;
-    const quantity = (item as CartItem).quantity;
-    const book = (item as CartItem).book;
-
-    if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity < 1) continue;
-    if (!book || typeof book !== 'object') continue;
-    if (typeof (book as BookDto).isbn !== 'string') continue;
-
-    items[isbn] = { book: book as BookDto, quantity: Math.floor(quantity) };
-  }
-
-  return { items };
-}
-
-function computeCartTotals(cart: CartState) {
+function computeCartTotals(cart: Cart) {
   const items = Object.values(cart.items);
   const totalItems = items.reduce((sum, it) => sum + it.quantity, 0);
   const total = items.reduce((sum, it) => sum + it.quantity * it.book.price, 0);
@@ -70,15 +44,24 @@ export default function BookList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [cart, setCart] = useState<CartState>(() => loadCart());
+  const [cart, setCart] = useState<Cart>({ items: {} });
+  const [cartLoading, setCartLoading] = useState(false);
   const cartOffcanvasRef = useRef<HTMLDivElement | null>(null);
 
   const cartTotals = useMemo(() => computeCartTotals(cart), [cart]);
 
   useEffect(() => {
-    if (typeof sessionStorage === 'undefined') return;
-    sessionStorage.setItem(CART_KEY, JSON.stringify(cart));
-  }, [cart]);
+    const loadCart = async () => {
+      try {
+        const fetchedCart = await fetchCart();
+        setCart(fetchedCart);
+      } catch (e) {
+        // Cart might not exist, use empty
+        setCart({ items: {} });
+      }
+    };
+    loadCart();
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -130,8 +113,8 @@ export default function BookList() {
   };
 
   const openCartOffcanvas = () => {
+    const browse: BrowseState = { page, pageSize, sortDir, category };
     if (typeof sessionStorage !== 'undefined') {
-      const browse: BrowseState = { page, pageSize, sortDir, category };
       sessionStorage.setItem(RETURN_BROWSE_KEY, JSON.stringify(browse));
     }
 
@@ -156,45 +139,48 @@ export default function BookList() {
     setCategory(typeof parsed.category === 'string' ? parsed.category : '');
   };
 
-  const addToCart = (book: BookDto) => {
-    setCart((prev) => {
-      const existing = prev.items[book.isbn];
-      const nextQty = (existing?.quantity ?? 0) + 1;
-      return {
-        items: {
-          ...prev.items,
-          [book.isbn]: {
-            book,
-            quantity: nextQty,
-          },
-        },
-      };
-    });
-
-    openCartOffcanvas();
+  const addToCartHandler = async (book: BookDto) => {
+    setCartLoading(true);
+    try {
+      const updatedCart = await addToCart(book.isbn);
+      setCart(updatedCart);
+      openCartOffcanvas();
+    } catch (e) {
+      // Handle error, maybe show toast
+      console.error('Failed to add to cart', e);
+    } finally {
+      setCartLoading(false);
+    }
   };
 
-  const adjustQuantity = (isbn: string, delta: number) => {
-    setCart((prev) => {
-      const item = prev.items[isbn];
-      if (!item) return prev;
+  const adjustQuantity = async (isbn: string, delta: number) => {
+    const item = cart.items[isbn];
+    if (!item) return;
 
-      const nextQty = item.quantity + delta;
-      if (nextQty <= 0) {
-        const { [isbn]: _removed, ...rest } = prev.items;
-        return { items: rest };
+    const nextQty = item.quantity + delta;
+    if (nextQty <= 0) {
+      // Remove item
+      setCartLoading(true);
+      try {
+        const updatedCart = await removeFromCart(isbn);
+        setCart(updatedCart);
+      } catch (e) {
+        console.error('Failed to remove from cart', e);
+      } finally {
+        setCartLoading(false);
       }
-
-      return {
-        items: {
-          ...prev.items,
-          [isbn]: {
-            ...item,
-            quantity: nextQty,
-          },
-        },
-      };
-    });
+    } else {
+      // Update quantity
+      setCartLoading(true);
+      try {
+        const updatedCart = await updateCartItem(isbn, nextQty);
+        setCart(updatedCart);
+      } catch (e) {
+        console.error('Failed to update cart', e);
+      } finally {
+        setCartLoading(false);
+      }
+    }
   };
 
   return (
@@ -223,7 +209,7 @@ export default function BookList() {
                 className="btn btn-primary btn-sm d-lg-none"
                 type="button"
                 onClick={openCartOffcanvas}
-                disabled={cartTotals.totalItems <= 0}
+                disabled={cartTotals.totalItems <= 0 || cartLoading}
               >
                 Cart ({cartTotals.totalItems})
               </button>
@@ -337,7 +323,7 @@ export default function BookList() {
                               <div className="fw-semibold">${b.price.toFixed(2)}</div>
                             </div>
 
-                            <button className="btn btn-success btn-sm" type="button" onClick={() => addToCart(b)}>
+                            <button className="btn btn-success btn-sm" type="button" onClick={() => addToCartHandler(b)} disabled={cartLoading}>
                               Add to Cart
                             </button>
                           </div>
@@ -423,7 +409,7 @@ export default function BookList() {
                     <div className="small text-muted mt-2">+{cartTotals.items.length - 3} more</div>
                   )}
 
-                  <button className="btn btn-primary w-100 mt-3" type="button" onClick={openCartOffcanvas}>
+                  <button className="btn btn-primary w-100 mt-3" type="button" onClick={openCartOffcanvas} disabled={cartLoading}>
                     View Cart
                   </button>
                 </>
@@ -481,6 +467,7 @@ export default function BookList() {
                               className="btn btn-outline-secondary"
                               type="button"
                               onClick={() => adjustQuantity(it.book.isbn, -1)}
+                              disabled={cartLoading}
                               aria-label={`Decrease quantity for ${it.book.title}`}
                             >
                               -
@@ -490,6 +477,7 @@ export default function BookList() {
                               className="btn btn-outline-secondary"
                               type="button"
                               onClick={() => adjustQuantity(it.book.isbn, +1)}
+                              disabled={cartLoading}
                               aria-label={`Increase quantity for ${it.book.title}`}
                             >
                               +

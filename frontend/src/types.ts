@@ -16,3 +16,12 @@ export type PagedResult<T> = {
   items: T[];
 };
 
+export type CartItem = {
+  book: BookDto;
+  quantity: number;
+};
+
+export type Cart = {
+  items: Record<string, CartItem>;
+};
+

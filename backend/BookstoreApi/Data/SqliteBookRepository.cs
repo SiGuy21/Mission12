@@ -207,6 +207,54 @@ public sealed class SqliteBookRepository : IBookRepository
         return categories;
     }
 
+    public async Task<BookDto?> GetBookByIsbnAsync(string isbn, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(isbn))
+            throw new ArgumentException("ISBN is required.", nameof(isbn));
+
+        var trimmed = isbn.Trim();
+
+        var fullPath = ResolveSqliteFullPath();
+        var connectionString = $"Data Source={fullPath}";
+        var mapping = await _schemaMapper.GetMappingAsync(connectionString, cancellationToken);
+
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var sql =
+            $@"SELECT
+                    ""{mapping.TitleColumn}"" AS Title,
+                    ""{mapping.AuthorColumn}"" AS Author,
+                    ""{mapping.PublisherColumn}"" AS Publisher,
+                    ""{mapping.IsbnColumn}"" AS Isbn,
+                    ""{mapping.CategoryColumn}"" AS Category,
+                    ""{mapping.NumberOfPagesColumn}"" AS NumberOfPages,
+                    ""{mapping.PriceColumn}"" AS Price
+                FROM ""{mapping.TableName}""
+                WHERE ""{mapping.IsbnColumn}"" = @isbn;";
+
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.Parameters.AddWithValue("@isbn", trimmed);
+
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return new BookDto
+            {
+                Title = GetRequiredString(reader, "Title"),
+                Author = GetRequiredString(reader, "Author"),
+                Publisher = GetRequiredString(reader, "Publisher"),
+                Isbn = GetRequiredString(reader, "Isbn"),
+                Category = GetRequiredString(reader, "Category"),
+                NumberOfPages = GetRequiredInt(reader, "NumberOfPages"),
+                Price = GetRequiredDecimal(reader, "Price")
+            };
+        }
+
+        return null;
+    }
+
     public async Task CreateBookAsync(BookDto book, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(book);

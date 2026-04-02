@@ -18,6 +18,9 @@ public interface IBookRepository
     // Returns distinct Category values for the catalog filter.
     Task<List<string>> GetCategoriesAsync(CancellationToken cancellationToken);
 
+    // Returns a single book by ISBN, or null if not found.
+    Task<BookDto?> GetBookByIsbnAsync(string isbn, CancellationToken cancellationToken);
+
     // Creates a new book row. Throws InvalidOperationException if the ISBN already exists.
     Task CreateBookAsync(BookDto book, CancellationToken cancellationToken);
 

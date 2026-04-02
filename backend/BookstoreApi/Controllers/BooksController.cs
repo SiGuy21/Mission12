@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using BookstoreApi.Data;
 using BookstoreApi.Models;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace BookstoreApi.Controllers;
 
@@ -120,6 +121,151 @@ public sealed class BooksController : ControllerBase
             return NotFound($"No book found with ISBN '{isbn}'.");
 
         return NoContent();
+    }
+
+    // GET /api/books/cart
+    [HttpGet("cart")]
+    public ActionResult<Cart> GetCart()
+    {
+        var cartJson = HttpContext.Session.GetString("Cart");
+        if (string.IsNullOrEmpty(cartJson))
+            return Ok(new Cart());
+
+        try
+        {
+            var cart = JsonSerializer.Deserialize<Cart>(cartJson, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+            return Ok(cart ?? new Cart());
+        }
+        catch
+        {
+            return Ok(new Cart());
+        }
+    }
+
+    // POST /api/books/cart/add
+    [HttpPost("cart/add")]
+    public async Task<ActionResult<Cart>> AddToCart([FromBody] AddToCartRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Isbn))
+            return BadRequest("ISBN is required.");
+
+        // Verify book exists
+        var book = await _repository.GetBookByIsbnAsync(request.Isbn, cancellationToken);
+        if (book == null)
+            return NotFound($"No book found with ISBN '{request.Isbn}'.");
+
+        var cartJson = HttpContext.Session.GetString("Cart");
+        Cart cart;
+        if (string.IsNullOrEmpty(cartJson))
+        {
+            cart = new Cart();
+        }
+        else
+        {
+            try
+            {
+                cart = JsonSerializer.Deserialize<Cart>(cartJson, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                }) ?? new Cart();
+            }
+            catch
+            {
+                cart = new Cart();
+            }
+        }
+
+        if (cart.Items.ContainsKey(request.Isbn))
+        {
+            cart.Items[request.Isbn].Quantity += 1;
+        }
+        else
+        {
+            cart.Items[request.Isbn] = new CartItem { Book = book, Quantity = 1 };
+        }
+
+        var updatedCartJson = JsonSerializer.Serialize(cart);
+        HttpContext.Session.SetString("Cart", updatedCartJson);
+
+        return Ok(cart);
+    }
+
+    // PUT /api/books/cart/update
+    [HttpPut("cart/update")]
+    public ActionResult<Cart> UpdateCartItem([FromBody] UpdateCartRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Isbn))
+            return BadRequest("ISBN is required.");
+
+        if (request.Quantity < 0)
+            return BadRequest("Quantity cannot be negative.");
+
+        var cartJson = HttpContext.Session.GetString("Cart");
+        if (string.IsNullOrEmpty(cartJson))
+            return NotFound("Cart is empty.");
+
+        Cart cart;
+        try
+        {
+            cart = JsonSerializer.Deserialize<Cart>(cartJson, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            }) ?? new Cart();
+        }
+        catch
+        {
+            return BadRequest("Invalid cart data.");
+        }
+
+        if (!cart.Items.ContainsKey(request.Isbn))
+            return NotFound($"Book with ISBN '{request.Isbn}' not in cart.");
+
+        if (request.Quantity == 0)
+        {
+            cart.Items.Remove(request.Isbn);
+        }
+        else
+        {
+            cart.Items[request.Isbn].Quantity = request.Quantity;
+        }
+
+        var updatedCartJson = JsonSerializer.Serialize(cart);
+        HttpContext.Session.SetString("Cart", updatedCartJson);
+
+        return Ok(cart);
+    }
+
+    // DELETE /api/books/cart/{isbn}
+    [HttpDelete("cart/{isbn}")]
+    public ActionResult<Cart> RemoveFromCart(string isbn)
+    {
+        var cartJson = HttpContext.Session.GetString("Cart");
+        if (string.IsNullOrEmpty(cartJson))
+            return NotFound("Cart is empty.");
+
+        Cart cart;
+        try
+        {
+            cart = JsonSerializer.Deserialize<Cart>(cartJson, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            }) ?? new Cart();
+        }
+        catch
+        {
+            return BadRequest("Invalid cart data.");
+        }
+
+        if (!cart.Items.Remove(isbn))
+            return NotFound($"Book with ISBN '{isbn}' not in cart.");
+
+        var updatedCartJson = JsonSerializer.Serialize(cart);
+        HttpContext.Session.SetString("Cart", updatedCartJson);
+
+        return Ok(cart);
     }
 
     private static string? ValidateBook(BookDto book)
