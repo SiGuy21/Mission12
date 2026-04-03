@@ -10,10 +10,13 @@ namespace BookstoreApi.Data;
 // This keeps the app working even if the DB uses slightly different column names.
 public sealed class BookstoreSchemaMapper
 {
+    // Thread-safe caching to avoid repeated schema scans.
     private readonly SemaphoreSlim _lock = new(1, 1);
     private string? _cachedConnectionString;
     private BookSchemaMapping? _cachedMapping;
 
+    // Gets the schema mapping for a database connection.
+    // Caches results per connection string to improve performance.
     public async Task<BookSchemaMapping> GetMappingAsync(string connectionString, CancellationToken cancellationToken)
     {
         // Cache per connection string so we don't repeatedly re-scan schema metadata.
@@ -44,6 +47,7 @@ public sealed class BookstoreSchemaMapper
         }
     }
 
+    // Analyzes the database schema to find the best table and column matches.
     private static async Task<BookSchemaMapping> InferMappingAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         // 1) list user tables
@@ -94,6 +98,7 @@ public sealed class BookstoreSchemaMapper
         return best;
     }
 
+    // Gets all column names for a table using SQLite PRAGMA.
     private static async Task<List<string>> GetColumnNamesAsync(SqliteConnection connection, string tableName, CancellationToken cancellationToken)
     {
         var columns = new List<string>();
@@ -111,6 +116,7 @@ public sealed class BookstoreSchemaMapper
         return columns;
     }
 
+    // Finds the best column matches for each book field and scores the table.
     private static BookSchemaMapping? InferColumns(string tableName, IReadOnlyList<string> columns, out int score)
     {
         score = 0;
@@ -160,6 +166,7 @@ public sealed class BookstoreSchemaMapper
         };
     }
 
+    // Selects the best matching column based on a predicate.
     private static string? PickColumn(IReadOnlyList<string> columns, Func<string, bool> predicate)
     {
         // Prefer exact-like matches first, then contains.
@@ -176,12 +183,14 @@ public sealed class BookstoreSchemaMapper
         return null;
     }
 
+    // Checks if a normalized column name is an exact match for the predicate.
     private static bool IsExactMatchForNormalized(string normalizedCandidate, IReadOnlyList<string> columns, Func<string, bool> predicate)
     {
         // This is intentionally permissive; we just want to avoid selecting something totally unrelated.
         return predicate(normalizedCandidate);
     }
 
+    // Scores how well a column matches expected keywords (exact match = 2, contains = 1).
     private static int ExactOrContainsScore(IReadOnlyList<string> columns, string? candidate, params string[] keywords)
     {
         if (candidate is null) return 0;
@@ -191,12 +200,15 @@ public sealed class BookstoreSchemaMapper
         return 0;
     }
 
+    // Checks if normalized column contains all required parts.
     private static bool ContainsAll(string normalizedColumn, params string[] requiredParts) =>
         requiredParts.All(p => normalizedColumn.Contains(Normalize(p), StringComparison.OrdinalIgnoreCase));
 
+    // Checks if normalized column contains any of the parts.
     private static bool ContainsAny(string normalizedColumn, params string[] parts) =>
         parts.Any(p => normalizedColumn.Contains(Normalize(p), StringComparison.OrdinalIgnoreCase));
 
+    // Normalizes a string by lowercasing and removing non-alphanumeric characters.
     private static string Normalize(string s)
     {
         // Lowercase and strip non-alphanumerics to make matching more forgiving.
@@ -204,6 +216,7 @@ public sealed class BookstoreSchemaMapper
         return Regex.Replace(lower, @"[^a-z0-9]+", "");
     }
 
+    // Escapes SQLite identifiers by doubling quotes.
     private static string EscapeIdentifier(string identifier)
         => identifier.Replace("\"", "\"\"");
 }

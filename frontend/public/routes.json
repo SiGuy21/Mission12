@@ -1,4 +1,6 @@
 {
+  // Azure Static Web Apps routing configuration.
+  // Routes all requests to index.html for client-side routing.
   "routes": [
     {
       "route": "/*",

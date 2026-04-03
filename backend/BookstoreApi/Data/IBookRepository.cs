@@ -3,11 +3,15 @@ using BookstoreApi.Models;
 
 namespace BookstoreApi.Data;
 
-// Data-access abstraction for listing books from Bookstore.sqlite.
+// This interface defines the contract for accessing book data.
+// It abstracts the database operations so the controller doesn't need to know about SQLite.
 public interface IBookRepository
 {
-    // Returns a single page of books.
-    // sortByTitleDescending determines whether ORDER BY Title is ASC or DESC.
+    // Gets a page of books from the database, with sorting and optional category filtering.
+    // page: which page to get (1-based)
+    // pageSize: how many books per page
+    // sortByTitleDescending: true for Z-A, false for A-Z
+    // category: filter by category, or null for all
     Task<PagedResult<BookDto>> GetBooksAsync(
         int page,
         int pageSize,
@@ -15,20 +19,20 @@ public interface IBookRepository
         string? category,
         CancellationToken cancellationToken);
 
-    // Returns distinct Category values for the catalog filter.
+    // Gets all unique category names from the books table.
     Task<List<string>> GetCategoriesAsync(CancellationToken cancellationToken);
 
-    // Returns a single book by ISBN, or null if not found.
+    // Finds a single book by its ISBN, returns null if not found.
     Task<BookDto?> GetBookByIsbnAsync(string isbn, CancellationToken cancellationToken);
 
-    // Creates a new book row. Throws InvalidOperationException if the ISBN already exists.
+    // Adds a new book to the database. Throws exception if ISBN already exists.
     Task CreateBookAsync(BookDto book, CancellationToken cancellationToken);
 
-    // Updates the book identified by `originalIsbn`. Returns false if no row matched.
-    // Throws InvalidOperationException if the new ISBN conflicts with a different row.
+    // Updates an existing book by its original ISBN. Returns true if updated, false if not found.
+    // Throws exception if new ISBN conflicts with another book.
     Task<bool> UpdateBookAsync(string originalIsbn, BookDto book, CancellationToken cancellationToken);
 
-    // Deletes the book with the given ISBN. Returns false if no row matched.
+    // Deletes a book by ISBN. Returns true if deleted, false if not found.
     Task<bool> DeleteBookAsync(string isbn, CancellationToken cancellationToken);
 }
 
