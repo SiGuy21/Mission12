@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { BookDto, PagedResult, Cart, CartItem } from '../types';
 import { fetchBookCategories, fetchBooks, fetchCart, addToCart, updateCartItem, removeFromCart } from '../api/booksApi';
 
@@ -32,6 +33,7 @@ function computeCartTotals(cart: Cart) {
 
 // Displays a paginated catalog of books with category filtering and a cart.
 export default function BookList() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -46,7 +48,6 @@ export default function BookList() {
 
   const [cart, setCart] = useState<Cart>({ items: {} });
   const [cartLoading, setCartLoading] = useState(false);
-  const cartOffcanvasRef = useRef<HTMLDivElement | null>(null);
 
   const cartTotals = useMemo(() => computeCartTotals(cart), [cart]);
 
@@ -112,31 +113,12 @@ export default function BookList() {
     setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
   };
 
-  const openCartOffcanvas = () => {
+  const openCart = () => {
     const browse: BrowseState = { page, pageSize, sortDir, category };
     if (typeof sessionStorage !== 'undefined') {
       sessionStorage.setItem(RETURN_BROWSE_KEY, JSON.stringify(browse));
     }
-
-    const el = cartOffcanvasRef.current;
-    if (!el) return;
-
-    const bs = (window as any).bootstrap;
-    const Offcanvas = bs?.Offcanvas;
-    if (!Offcanvas) return;
-
-    const instance = Offcanvas.getOrCreateInstance(el);
-    instance.show();
-  };
-
-  const continueShopping = () => {
-    const parsed = safeJsonParse<BrowseState>(sessionStorage.getItem(RETURN_BROWSE_KEY));
-    if (!parsed) return;
-
-    setPage(Number.isFinite(parsed.page) && parsed.page >= 1 ? parsed.page : 1);
-    setPageSize(Number.isFinite(parsed.pageSize) && parsed.pageSize >= 1 ? parsed.pageSize : 5);
-    setSortDir(parsed.sortDir === 'desc' ? 'desc' : 'asc');
-    setCategory(typeof parsed.category === 'string' ? parsed.category : '');
+    navigate('/cart');
   };
 
   const addToCartHandler = async (book: BookDto) => {
@@ -144,7 +126,7 @@ export default function BookList() {
     try {
       const updatedCart = await addToCart(book.isbn);
       setCart(updatedCart);
-      openCartOffcanvas();
+      openCart();
     } catch (e) {
       // Handle error, maybe show toast
       console.error('Failed to add to cart', e);
@@ -208,7 +190,7 @@ export default function BookList() {
               <button
                 className="btn btn-primary btn-sm d-lg-none"
                 type="button"
-                onClick={openCartOffcanvas}
+                onClick={openCart}
                 disabled={cartTotals.totalItems <= 0 || cartLoading}
               >
                 Cart ({cartTotals.totalItems})
@@ -295,7 +277,7 @@ export default function BookList() {
               <div className="row g-3">
                 {data.items.map((b) => (
                   <div className="col-12 col-md-6 col-lg-4" key={b.isbn}>
-                    <div className="card h-100 shadow-sm">
+                    <div className="card h-100 shadow-sm fade-in">
                       <div className="card-body d-flex flex-column">
                         <div className="d-flex justify-content-between align-items-start gap-2">
                           <div>
@@ -376,7 +358,7 @@ export default function BookList() {
           <div className="card">
             <div className="card-body">
               <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
-                <div>
+                <div style={{ cursor: 'pointer' }} onClick={cartTotals.totalItems > 0 ? openCart : undefined}>
                   <div className="fw-semibold">Cart Summary</div>
                   <div className="text-muted small">Session-persistent cart</div>
                 </div>
@@ -409,108 +391,12 @@ export default function BookList() {
                     <div className="small text-muted mt-2">+{cartTotals.items.length - 3} more</div>
                   )}
 
-                  <button className="btn btn-primary w-100 mt-3" type="button" onClick={openCartOffcanvas} disabled={cartLoading}>
+                  <button className="btn btn-primary w-100 mt-3" type="button" onClick={openCart} disabled={cartLoading}>
                     View Cart
                   </button>
                 </>
               )}
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Bootstrap attributes used (for TAs):
-          - Collapse filter: data-bs-toggle="collapse", data-bs-target="#filterCollapse" (see the "Filters" button).
-          - Offcanvas cart: data-bs-dismiss="offcanvas" (see "Continue Shopping" + close button).
-       */}
-      <div
-        className="offcanvas offcanvas-end"
-        tabIndex={-1}
-        id="cartOffcanvas"
-        aria-labelledby="cartOffcanvasLabel"
-        ref={cartOffcanvasRef}
-      >
-        <div className="offcanvas-header">
-          <h5 className="offcanvas-title" id="cartOffcanvasLabel">
-            Your Cart
-          </h5>
-          <button type="button" className="btn-close" data-bs-dismiss="offcanvas" aria-label="Close" />
-        </div>
-
-        <div className="offcanvas-body">
-          {cartTotals.totalItems <= 0 ? (
-            <div className="text-muted">Your cart is empty.</div>
-          ) : (
-            <>
-              <div className="list-group mb-3">
-                {cartTotals.items.map((it) => {
-                  const subtotal = it.quantity * it.book.price;
-                  return (
-                    <div key={it.book.isbn} className="list-group-item">
-                      <div className="d-flex justify-content-between align-items-start gap-2">
-                        <div className="me-2">
-                          <div className="fw-semibold">{it.book.title}</div>
-                          <div className="text-muted small">
-                            {it.book.author} • {it.book.category}
-                          </div>
-                        </div>
-                        <div className="text-end">
-                          <div className="text-muted small">Unit</div>
-                          <div className="fw-semibold">${it.book.price.toFixed(2)}</div>
-                        </div>
-                      </div>
-
-                      <div className="row g-2 mt-2 align-items-center">
-                        <div className="col-auto">
-                          <div className="input-group input-group-sm">
-                            <button
-                              className="btn btn-outline-secondary"
-                              type="button"
-                              onClick={() => adjustQuantity(it.book.isbn, -1)}
-                              disabled={cartLoading}
-                              aria-label={`Decrease quantity for ${it.book.title}`}
-                            >
-                              -
-                            </button>
-                            <input className="form-control" value={it.quantity} readOnly aria-label="Quantity" />
-                            <button
-                              className="btn btn-outline-secondary"
-                              type="button"
-                              onClick={() => adjustQuantity(it.book.isbn, +1)}
-                              disabled={cartLoading}
-                              aria-label={`Increase quantity for ${it.book.title}`}
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="col text-end">
-                          <div className="text-muted small">Subtotal</div>
-                          <div className="fw-semibold">${subtotal.toFixed(2)}</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <div className="fw-semibold">Total</div>
-                <div className="h5 mb-0">${cartTotals.total.toFixed(2)}</div>
-              </div>
-            </>
-          )}
-
-          <div className="d-grid gap-2">
-            <button
-              type="button"
-              className="btn btn-primary"
-              data-bs-dismiss="offcanvas"
-              onClick={continueShopping}
-            >
-              Continue Shopping
-            </button>
           </div>
         </div>
       </div>

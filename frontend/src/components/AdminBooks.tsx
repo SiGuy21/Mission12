@@ -223,7 +223,7 @@ export default function AdminBooks() {
 
       {!loading && books.length > 0 && (
         <div className="table-responsive">
-          <table className="table table-sm table-striped align-middle">
+          <table className="table table-sm table-striped align-middle fade-in">
             <thead>
               <tr>
                 <th>Title</th>

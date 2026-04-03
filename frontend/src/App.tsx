@@ -3,6 +3,7 @@ import React from 'react';
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import AdminBooks from './components/AdminBooks';
 import BookList from './components/BookList';
+import Cart from './components/Cart';
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<BookList />} />
         <Route path="/adminbooks" element={<AdminBooks />} />
+        <Route path="/cart" element={<Cart />} />
       </Routes>
     </BrowserRouter>
   );
