@@ -1,14 +1,26 @@
 import type { BookDto, PagedResult } from '../types';
 import type { Cart } from '../types';
 
-// Base URL for the API. Set VITE_API_BASE_URL for production; otherwise uses the deployed App Service URL below.
+// Base URL for the API.
+// - Local dev: use VITE_API_BASE_URL or fallback to http://localhost:5000.
+// - Prod: set VITE_API_BASE_URL to the deployed backend URL (Azure App Service).
+// - If env var is missing in prod, fallback to your known backend URL.
 function apiUrl(pathAndQuery: string): string {
-  const raw = import.meta.env.VITE_API_BASE_URL?.trim() || 'https://bookstoreapp-silas-backend-cffkbxgubjgnb7gp.centralus-01.azurewebsites.net/';
-  const env =
-    raw && raw.length > 0
-      ? raw
-      : 'https://bookstoreapp-silas-backend-cffkbxgubjgnb7gp.centralus-01.azurewebsites.net/';
-  const base = env.replace(/\/$/, '');
+  const localFallback = 'http://localhost:5000';
+  const prodFallback = 'https://bookstoreapp-silas-backend-cffkbxgubjgnb7gp.centralus-01.azurewebsites.net';
+
+  let raw = import.meta.env.VITE_API_BASE_URL?.trim();
+
+  // If not configured, use local in dev or prod fallback in deployment.
+  if (!raw || raw.length === 0) {
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      raw = localFallback;
+    } else {
+      raw = prodFallback;
+    }
+  }
+
+  const base = raw.replace(/\/$/, '');
   const p = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
   return `${base}${p}`;
 }
