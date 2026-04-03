@@ -1,15 +1,20 @@
 import type { BookDto, PagedResult } from '../types';
-import type { Cart, CartItem } from '../types';
+import type { Cart } from '../types';
 
-// Base URL for the API. Empty uses same origin (Vite dev proxy or SWA + configured backend).
+// Base URL for the API. Set VITE_API_BASE_URL for production; otherwise uses the deployed App Service URL below.
 function apiUrl(pathAndQuery: string): string {
-  const env = import.meta.env.VITE_API_BASE_URL?.trim() || "https://bookstoreapp-silas-backend-cffkbxgubjgnb7gp.centralus-01.azurewebsites.net/";
-  if (env) {
-    const base = env.replace(/\/$/, '');
-    const p = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
-    return `${base}${p}`;
-  }
-  return pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
+  const raw = import.meta.env.VITE_API_BASE_URL?.trim();
+  const env =
+    raw && raw.length > 0
+      ? raw
+      : 'https://bookstoreapp-silas-backend-cffkbxgubjgnb7gp.centralus-01.azurewebsites.net';
+  const base = env.replace(/\/$/, '');
+  const p = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
+  return `${base}${p}`;
+}
+
+function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...init, credentials: 'include' });
 }
 
 export async function fetchBooks(params: {
@@ -29,7 +34,7 @@ export async function fetchBooks(params: {
     url.searchParams.set('category', params.category.trim());
   }
 
-  const res = await fetch(apiUrl(`${url.pathname}${url.search}`), { method: 'GET', signal: params.signal });
+  const res = await apiFetch(apiUrl(`${url.pathname}${url.search}`), { method: 'GET', signal: params.signal });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Request failed (${res.status})`);
@@ -39,7 +44,7 @@ export async function fetchBooks(params: {
 }
 
 export async function fetchBookCategories(params?: { signal?: AbortSignal }): Promise<string[]> {
-  const res = await fetch(apiUrl('/api/books/categories'), { method: 'GET', signal: params?.signal });
+  const res = await apiFetch(apiUrl('/api/books/categories'), { method: 'GET', signal: params?.signal });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Request failed (${res.status})`);
@@ -70,7 +75,7 @@ export async function fetchAllBooks(params?: { signal?: AbortSignal }): Promise<
 }
 
 export async function createBook(book: BookDto, params?: { signal?: AbortSignal }): Promise<void> {
-  const res = await fetch(apiUrl('/api/books'), {
+  const res = await apiFetch(apiUrl('/api/books'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(book),
@@ -88,7 +93,7 @@ export async function updateBook(
   params?: { signal?: AbortSignal }
 ): Promise<void> {
   const path = `/api/books/${encodeURIComponent(originalIsbn)}`;
-  const res = await fetch(apiUrl(path), {
+  const res = await apiFetch(apiUrl(path), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(book),
@@ -102,7 +107,7 @@ export async function updateBook(
 
 export async function deleteBook(isbn: string, params?: { signal?: AbortSignal }): Promise<void> {
   const path = `/api/books/${encodeURIComponent(isbn)}`;
-  const res = await fetch(apiUrl(path), { method: 'DELETE', signal: params?.signal });
+  const res = await apiFetch(apiUrl(path), { method: 'DELETE', signal: params?.signal });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Request failed (${res.status})`);
@@ -110,7 +115,7 @@ export async function deleteBook(isbn: string, params?: { signal?: AbortSignal }
 }
 
 export async function fetchCart(params?: { signal?: AbortSignal }): Promise<Cart> {
-  const res = await fetch(apiUrl('/api/books/cart'), { method: 'GET', signal: params?.signal });
+  const res = await apiFetch(apiUrl('/api/books/cart'), { method: 'GET', signal: params?.signal });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Request failed (${res.status})`);
@@ -120,7 +125,7 @@ export async function fetchCart(params?: { signal?: AbortSignal }): Promise<Cart
 }
 
 export async function addToCart(isbn: string, params?: { signal?: AbortSignal }): Promise<Cart> {
-  const res = await fetch(apiUrl('/api/books/cart/add'), {
+  const res = await apiFetch(apiUrl('/api/books/cart/add'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ isbn }),
@@ -135,7 +140,7 @@ export async function addToCart(isbn: string, params?: { signal?: AbortSignal })
 }
 
 export async function updateCartItem(isbn: string, quantity: number, params?: { signal?: AbortSignal }): Promise<Cart> {
-  const res = await fetch(apiUrl('/api/books/cart/update'), {
+  const res = await apiFetch(apiUrl('/api/books/cart/update'), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ isbn, quantity }),
@@ -151,7 +156,7 @@ export async function updateCartItem(isbn: string, quantity: number, params?: { 
 
 export async function removeFromCart(isbn: string, params?: { signal?: AbortSignal }): Promise<Cart> {
   const path = `/api/books/cart/${encodeURIComponent(isbn)}`;
-  const res = await fetch(apiUrl(path), { method: 'DELETE', signal: params?.signal });
+  const res = await apiFetch(apiUrl(path), { method: 'DELETE', signal: params?.signal });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Request failed (${res.status})`);
