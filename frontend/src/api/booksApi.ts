@@ -3,11 +3,11 @@ import type { Cart } from '../types';
 
 // Base URL for the API. Set VITE_API_BASE_URL for production; otherwise uses the deployed App Service URL below.
 function apiUrl(pathAndQuery: string): string {
-  const raw = import.meta.env.VITE_API_BASE_URL?.trim();
+  const raw = import.meta.env.VITE_API_BASE_URL?.trim() || 'https://bookstoreapp-silas-backend-cffkbxgubjgnb7gp.centralus-01.azurewebsites.net/';
   const env =
     raw && raw.length > 0
       ? raw
-      : 'https://bookstoreapp-silas-backend-cffkbxgubjgnb7gp.centralus-01.azurewebsites.net';
+      : 'https://bookstoreapp-silas-backend-cffkbxgubjgnb7gp.centralus-01.azurewebsites.net/';
   const base = env.replace(/\/$/, '');
   const p = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
   return `${base}${p}`;
